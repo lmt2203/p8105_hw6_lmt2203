@@ -31,7 +31,7 @@ set.seed(1)
 
 # Problem 1
 
-Look at some variables: age, race and sex
+Load dataset
 
 ```{r}
 homicide_df =
@@ -60,7 +60,7 @@ baltimore_df =
 
 glm(resolution ~ victim_age + victim_race + victim_sex, 
     data = baltimore_df,
-    family = binomial()) %>% 
+    family = binomial()) %>%    #most of coefficient estimates are negative, meaning resolution becomes less likely in comparison to reference group. 
   broom::tidy() %>% 
   mutate(
     OR = exp(estimate),
@@ -79,7 +79,8 @@ models_results_df =
   homicide_df %>% 
   nest(data = -city_state) %>% 
   mutate(
-    models = map(.x = data, glm(resolution ~ victim_age + victim_race + victim_sex, data = .x, family = binomial)),
+    models = 
+      map(.x = data, ~glm(resolution ~ victim_age + victim_race + victim_sex, data = .x, family = binomial)),
     results = map(models, broom::tidy)
   ) %>% 
   select(city_state, results) %>% 
@@ -96,7 +97,7 @@ models_results_df =
 
 Make a plot comparing OR between male and female homicide victim along with CI
 
-```{r error = TRUE}
+```{r}
 models_results_df %>% 
   filter(term == "victim_sexMale") %>% 
   mutate(city_state = fct_reorder(city_state, OR)) %>% 
@@ -109,6 +110,81 @@ models_results_df %>%
 
 # Problem 2
 
+Load and clean the data 
+
+```{r}
+baby_df = 
+  read_csv("data/birthweight.csv") %>%
+  mutate(
+    babysex = as.factor(recode(babysex, `1` = "male", `2` = "female")),
+    frace = as.factor(recode(frace, `1` = "White", `2` = "Black", `3` = "Asian", `4` = "Puerto Rican", `8` = "Other", `9` = "Unknown")),
+    mrace = as.factor(recode(frace, `1` = "White", `2` = "Black", `3` = "Asian", `4` = "Puerto Rican", `8` = "Other")),
+    malform = as.factor(recode(malform, `0` = "absent", `1` = "present"))
+    )
+
+```
+
+Two models
+
+```{r}
+model1 = lm(bwt ~ blength + gaweeks, data = baby_df)
+summary(model1)
+
+model2 = lm(bwt ~ bhead + blength + babysex, data = baby_df)
+summary(model2)
+```
+
+Proposed model
+
+```{r}
+summary(lm(bwt ~ ., data = baby_df))  #babysex, bhead, blength, delwt, gaweeks, parity (*), smoken.
+```
+
+**Modeling process** 
+
+
+**A plot of model residuals against fitted values**
+
+
+**Cross-validated predicted error**
+
+
+Fit regression models for birthweight
+
+```{r}
+model_fit = lm(bwt ~ gaweeks, data = baby_df) 
+summary(model_fit)
+model_fit %>% broom::tidy()
+```
+
+Take a look at the residuals 
+
+```{r}
+baby_df %>% 
+  modelr::add_residuals(model_fit) %>% 
+  ggplot(aes(x = resid)) + 
+  geom_density()
+#residuals are centered around 0, roughly between -1000 and 1000
+
+baby_df %>% 
+  modelr::add_residuals(model_fit) %>% 
+  ggplot(aes(x = gaweeks, y = resid)) + 
+  geom_point()
+#most of data points centered around 0. seems to be a little bit something going on over (x = 20), maybe missing something useful. 
+```
+
+Does it look like there is skewness in distribution? 
+Any trends? 
+
+* Build 3 models: compare each of them using CV. 
+  + sex, bhead, bwt, gaweeks, momage, mrace, parity, smoken
+* Why those are the variables you want to put in?
+* Or variable selection
+* 2nd model : 3-way interaction
+  + R will assume if you put an interaction b/w 2 variables R assumes you want main effect. 
+
+
+  
 some variables: birthweight, sex, bwt, gaweeks, momage, parity, smoken
 
 build the model: by looking thru these variables and come up with reasons why you put them in. or go all out and variable selection?
@@ -139,6 +215,14 @@ baby_df %>%
 
 
 # Problem 3
+
+Download dataset and just focus on Central Park, NY data. 
+
+```{r}
+
+```
+
+
 
 use bootstraps to obtain distribution for parameters interested in. 
 Fit a linear model of tmax and tmin. Proporiton of r squared value (broom::glance) and log of (bo + b1) (broom::tidy)
