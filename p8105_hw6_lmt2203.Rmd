@@ -124,93 +124,80 @@ baby_df =
 
 ```
 
-Two models
-
-```{r}
-model1 = lm(bwt ~ blength + gaweeks, data = baby_df)
-summary(model1)
-
-model2 = lm(bwt ~ bhead + blength + babysex, data = baby_df)
-summary(model2)
-```
+**Modeling process** 
 
 Proposed model
 
 ```{r}
 summary(lm(bwt ~ ., data = baby_df))  #babysex, bhead, blength, delwt, gaweeks, parity (*), smoken.
+
+
+proposed_model = lm(bwt ~ gaweeks + smoken, data = baby_df)
+summary(proposed_model)
 ```
-
-**Modeling process** 
-
 
 **A plot of model residuals against fitted values**
 
+```{r}
+baby_df %>% 
+  modelr::add_residuals(proposed_model) %>% 
+  ggplot(aes(x = resid)) +
+  geom_density()
+
+baby_df %>% 
+  modelr::add_residuals(proposed_model) %>% 
+  ggplot(aes(x = gaweeks, y = resid)) +
+  geom_point() 
+```
+
+Two other models for comparison:
+
+```{r}
+model1 = lm(bwt ~ blength + gaweeks, data = baby_df)
+summary(model1)
+
+model2 = lm(bwt ~ bhead * blength * babysex, data = baby_df)
+summary(model2)
+
+```
 
 **Cross-validated predicted error**
 
-
-Fit regression models for birthweight
-
 ```{r}
-model_fit = lm(bwt ~ gaweeks, data = baby_df) 
-summary(model_fit)
-model_fit %>% broom::tidy()
+cv_df = 
+  crossv_mc(baby_df, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_df = 
+  cv_df %>% 
+  mutate(
+    model1  = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model2  = map(train, ~lm(bwt ~ bhead + blength + babysex, data = .x)),
+    proposed_model  = map(train, ~lm(bwt ~ gaweeks + smoken, data = .x))
+    ) %>% 
+  mutate(
+    rmse_model1 = map2_dbl(model1, test, ~rmse(model = .x, data = .y)),
+    rmse_model2 = map2_dbl(model2, test, ~rmse(model = .x, data = .y)),
+    rmse_proposed_model = map2_dbl(proposed_model, test, ~rmse(model = .x, data = .y))
+    )
 ```
 
-Take a look at the residuals 
+The distribution of RMSE values for each model.
 
 ```{r}
-baby_df %>% 
-  modelr::add_residuals(model_fit) %>% 
-  ggplot(aes(x = resid)) + 
-  geom_density()
-#residuals are centered around 0, roughly between -1000 and 1000
-
-baby_df %>% 
-  modelr::add_residuals(model_fit) %>% 
-  ggplot(aes(x = gaweeks, y = resid)) + 
-  geom_point()
-#most of data points centered around 0. seems to be a little bit something going on over (x = 20), maybe missing something useful. 
-```
-
-Does it look like there is skewness in distribution? 
-Any trends? 
-
-* Build 3 models: compare each of them using CV. 
-  + sex, bhead, bwt, gaweeks, momage, mrace, parity, smoken
-* Why those are the variables you want to put in?
-* Or variable selection
-* 2nd model : 3-way interaction
-  + R will assume if you put an interaction b/w 2 variables R assumes you want main effect. 
-
-
-  
-some variables: birthweight, sex, bwt, gaweeks, momage, parity, smoken
-
-build the model: by looking thru these variables and come up with reasons why you put them in. or go all out and variable selection?
-
-Compare in term of prediction accuracy and prediction errors. 
-
-```{r}
-# Find some residuals
-
-baby_df = 
-  read_csv("data/birthweight.csv") 
-
-# Fit a model
-
-model_fit = lm(bwt ~ gaweeks, data = baby_df) #can make a scatterplot with y = bwt,x = gastational weeks
-
-# add residuals
-baby_df %>% 
-  modelr::add_residuals(model_fit) %>% 
-  ggplot(aes(x = resid)) +
-  geom_density() #residuals are not heavily skewed. 
-
-baby_df %>% 
-  modelr::add_residuals(model_fit) %>% 
-  ggplot(aes(x = gaweeks, y = resid)) +
-  geom_point() #everything centered around 0. 
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin()
 ```
 
 
