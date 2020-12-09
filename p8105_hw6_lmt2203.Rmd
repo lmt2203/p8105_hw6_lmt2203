@@ -121,17 +121,13 @@ baby_df =
     mrace = as.factor(recode(frace, `1` = "White", `2` = "Black", `3` = "Asian", `4` = "Puerto Rican", `8` = "Other")),
     malform = as.factor(recode(malform, `0` = "absent", `1` = "present"))
     )
-
 ```
 
 **Modeling process** 
 
-Proposed model
+I run a linear regression for all the variables and found that the gestational age in weeks (`gaweeks`) and average number of cigarettes smoked per day during pregnancy (`smoken`) are significantly associated with babies' birthweights. So I am gonna fit a model using gestational age and number of cigarettes smoked as predictors. 
 
 ```{r}
-summary(lm(bwt ~ ., data = baby_df))  #babysex, bhead, blength, delwt, gaweeks, parity (*), smoken.
-
-
 proposed_model = lm(bwt ~ gaweeks + smoken, data = baby_df)
 summary(proposed_model)
 ```
@@ -140,24 +136,25 @@ summary(proposed_model)
 
 ```{r}
 baby_df %>% 
-  modelr::add_residuals(proposed_model) %>% 
-  ggplot(aes(x = resid)) +
-  geom_density()
+  add_predictions(proposed_model) %>% 
+  add_residuals(proposed_model) %>% 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point() + 
+  labs(
+    x  = "Residuals",
+    y = "Fitted Values",
+    title = "Residuals vs. Fitted Values"
+  )
 
-baby_df %>% 
-  modelr::add_residuals(proposed_model) %>% 
-  ggplot(aes(x = gaweeks, y = resid)) +
-  geom_point() 
+
 ```
 
-Two other models for comparison:
+Two other models for comparison given in the prompt:
 
 ```{r}
 model1 = lm(bwt ~ blength + gaweeks, data = baby_df)
-summary(model1)
 
 model2 = lm(bwt ~ bhead * blength * babysex, data = baby_df)
-summary(model2)
 
 ```
 
@@ -175,7 +172,7 @@ cv_df =
   cv_df %>% 
   mutate(
     model1  = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
-    model2  = map(train, ~lm(bwt ~ bhead + blength + babysex, data = .x)),
+    model2  = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x)),
     proposed_model  = map(train, ~lm(bwt ~ gaweeks + smoken, data = .x))
     ) %>% 
   mutate(
@@ -196,20 +193,100 @@ cv_df %>%
     values_to = "rmse",
     names_prefix = "rmse_"
   ) %>% 
+  mutate(model = fct_inorder(model)) %>% 
   ggplot(aes(x = model, y = rmse)) +
-  geom_violin()
+  geom_violin() +
+  labs(
+    x = "Model",
+    y = "RMSE",
+    title = "Plot of Cross-Validation RMSE"
+  )
 ```
 
+The second comparison model with predictors head circumference, length, sex and all their interactions has the overall lowest RMSE values. My proposed model has the highest RMSE. Between these three models, I would probably pick the second model. 
 
 # Problem 3
 
 Download dataset and just focus on Central Park, NY data. 
 
 ```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+Bootstrap 5000 samples
+
+```{r}
+set.seed(1)
+
+weather_boot_results =
+  weather_df %>%
+  bootstrap(5000, id = "strap_number") %>% 
+  mutate(
+    models = map(.x = strap, ~lm (tmax ~ tmin, data = .x)),
+    results = map(models, broom::tidy),
+    glance = map(models, broom::glance)
+  ) %>% 
+  unnest(results, glance) %>% 
+  select(strap_number, term, estimate, r.squared) %>% 
+  pivot_wider(
+    names_from = "term",
+    values_from = "estimate"
+  ) %>% 
+  rename(intercept = "(Intercept)") %>% 
+  mutate(log_est = log(intercept * tmin))
 
 ```
 
+**Distribution of ${\hat{r}}^2$**
 
+```{r}
+weather_boot_results %>% 
+  ggplot(aes(x = r.squared)) +
+  geom_density() +
+  labs(
+    x = "R-squared Estimate",
+    title = "Distribution of R-squared Estimate"
+  )
+```
 
-use bootstraps to obtain distribution for parameters interested in. 
-Fit a linear model of tmax and tmin. Proporiton of r squared value (broom::glance) and log of (bo + b1) (broom::tidy)
+The distribution of r-squared is slightly left-skewed. \
+
+Distribution of $log(\widehat{\beta_o}\ *\ \widehat{\beta_1})\ $
+
+```{r}
+weather_boot_results %>% 
+  ggplot(aes(x = log_est)) + 
+  geom_density() 
+```
+
+95% CI for ${\hat{r}}^2$ and $log(\widehat{\beta_o}\ *\ \widehat{\beta_1})\ $
+
+```{r}
+set.seed(1)
+
+weather_boot_results %>% 
+  select(-intercept, -tmin) %>% 
+  pivot_longer(
+  r.squared:log_est,
+  names_to = "term",
+  values_to = "estimate"
+  ) %>% 
+  group_by(term) %>% 
+  summarize(
+    ci_lower = quantile(estimate, 0.025),
+    ci_upper = quantile(estimate, 0.975)
+  ) %>% 
+  knitr::kable()
+```
+
+The 95% confidence interval for R squared is (0.893, 0.927) and for log(B0*B1) it is (1.965, 2.059).
